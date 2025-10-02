@@ -1,14 +1,17 @@
 import torch
-from torch import nn
+import torch.nn.functional as F
+from torch.utils.data import Dataset
 import torchvision.transforms.v2.functional as TF
+from torchvision.datasets import CocoDetection
 
 import numpy as np
 
-from PIL import Image
+from pathlib import Path
+from typing import Union
 
 
 def letterbox(
-    sample: torch.Tensor, bboxes: torch.Tensor, size: np.int32
+    image: torch.Tensor, bboxes: torch.Tensor, size: np.int32
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """
     The `boxes` tensor is expected to contain bounding boxes in format [x, y, w, h],
@@ -17,41 +20,62 @@ def letterbox(
     """
 
     # x = TF.pil_to_tensor(sample)
-    _, h_orig, w_orig = sample.shape
+    _, h_orig, w_orig = image.shape
     scale = np.float32(size / max(h_orig, w_orig))
-    sample = TF.resize(sample, size=None, max_size=size)
-    _, h_scaled, w_scaled = sample.shape
+    image = TF.resize(image, size=None, max_size=size)
+    _, h_scaled, w_scaled = image.shape
     assert np.isclose(h_orig * scale, h_scaled) and np.isclose(w_orig * scale, w_scaled)
 
     bboxes *= scale
     pad_size = np.int32((size - min(w_scaled, h_scaled)) / 2)
     if w_scaled < h_scaled:
-        sample = TF.pad(sample, [pad_size, 0])  # left/right padding
+        image = TF.pad(image, [pad_size, 0])  # left/right padding
         bboxes[:, 0] += pad_size
     else:
-        sample = TF.pad(sample, [0, pad_size])  # top/bottom padding
+        image = TF.pad(image, [0, pad_size])  # top/bottom padding
         bboxes[:, 1] += pad_size
-    return sample, bboxes
+    return image, bboxes
 
 
-def get_bboxes(target):
-    bboxes = torch.empty((len(target), 4))
-    for i, ann in enumerate(target):
-        bboxes[i] = torch.tensor(ann["bbox"])  # x, y, w, h
-    return bboxes
-
-
-class YOLOv1CocoTransform(nn.Module):
-    '''
-    WIP. Not ready yet.
-    '''
-    def __init__(self, image_size: np.int32 = 448, grid_size: np.int32 = 7):
-        super().__init__()
+class YoloCoco(Dataset):
+    def __init__(
+        self,
+        root: Union[str, Path],
+        annFile: str,
+        image_size: np.int32 = 448,
+        grid_size: np.int32 = 7,
+    ):
+        self.coco = CocoDetection(root, annFile)
+        self.num_classes = len(self.coco.coco.getCatIds())
+        self.cat_id_mapping = {
+            cat_id: idx for idx, cat_id in enumerate(self.coco.coco.getCatIds())
+        }  # make the category IDs contiguous
         self.image_size = image_size
         self.grid_size = grid_size
 
-    def forward(self, sample: Image, target: list) -> tuple[torch.Tensor, torch.Tensor]:
-        bboxes = get_bboxes(target)
-        x = TF.pil_to_tensor(sample)
-        x, bboxes = letterbox(x, bboxes, self.image_size)
-        return x, bboxes
+    def __len__(self):
+        return len(self.coco)
+
+    def _get_bboxes(self, label):
+        bboxes = torch.zeros(  # we rely on zeroing for one hot encoding
+            (len(label), 4 + self.num_classes)
+        )  # x, y, w, h, confidence, one-hot encoded classes
+        for i, ann in enumerate(label):
+            bboxes[i, 0:4] = torch.tensor(ann["bbox"])  # x, y, w, h
+            bboxes[i, 5] = 1
+            cat_id = self.cat_id_mapping[ann["category_id"]]
+            # ohot = F.one_hot(torch.tensor(cat_id), self.num_classes).to(bboxes.dtype)
+            bboxes[i, 5 + cat_id] = 1
+        return bboxes
+
+    def _yolo_label(self, bboxes):
+        label = bboxes  # TODO
+        return self, label
+
+    def __getitem__(self, index):
+        image, label = self.coco[index]
+        image = TF.pil_to_tensor(image)
+        bboxes = self._get_bboxes(label)
+        image, bboxes = letterbox(image, bboxes, self.image_size)
+        label = self._yolo_label(bboxes)
+        return image, label

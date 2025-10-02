@@ -1,3 +1,3 @@
-from .yolo_v1_coco import YOLOv1CocoTransform
+from . import yolo_v1_coco
 
-__all__ = ["YOLOv1CocoTransform"]
+__all__ = ["yolo_v1_coco"]
