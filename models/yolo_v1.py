@@ -3,7 +3,7 @@
 from torch import nn
 
 
-class YOLOv1(nn.Module):
+class Yolo(nn.Module):
     def __init__(self, grid_size, num_boxes, num_classes):
         super().__init__()
         self.grid_size = grid_size

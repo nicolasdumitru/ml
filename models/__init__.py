@@ -1,3 +1,3 @@
-from .yolo import YOLOv1
+from . import yolo_v1
 
-__all__ = ["YOLOv1"]
+__all__ = ["yolo_v1"]
