@@ -26,7 +26,7 @@ def letterbox(
     _, h_scaled, w_scaled = image.shape
     assert np.isclose(h_orig * scale, h_scaled) and np.isclose(w_orig * scale, w_scaled)
 
-    bboxes *= scale
+    bboxes[:, 0:4] *= scale
     pad_size = np.int32((size - min(w_scaled, h_scaled)) / 2)
     if w_scaled < h_scaled:
         image = TF.pad(image, [pad_size, 0])  # left/right padding
